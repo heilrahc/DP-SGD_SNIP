@@ -267,7 +267,7 @@ class SNIP_DPSGD(Pruner):
     def __init__(self, masked_parameters):
         super(SNIP, self).__init__(masked_parameters)
 
-    def score(self, model, loss, dataloader, device):
+    def score(self, model, loss, dataloader, clip_norm, noise_factor, device):
 
         # allow masks to have gradient
         for m, _ in self.masked_parameters:
