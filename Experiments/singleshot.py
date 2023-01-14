@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
+from backpack import extend
 from Utils import load
 from Utils import generator
 from Utils import metrics
@@ -27,6 +28,8 @@ def run(args):
                                                      args.dense_classifier, 
                                                      args.pretrained).to(device)
     loss = nn.CrossEntropyLoss()
+    model = extend(model)
+    loss = extend(loss)
     opt_class, opt_kwargs = load.optimizer(args.optimizer)
     optimizer = opt_class(generator.parameters(model), lr=args.lr, weight_decay=args.weight_decay, **opt_kwargs)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.lr_drops, gamma=args.lr_drop_rate)
