@@ -1,4 +1,5 @@
 import torch as pt
+import numpy as np
 from backpack import backpack
 from backpack.extensions import BatchGrad, BatchL2Grad
 
