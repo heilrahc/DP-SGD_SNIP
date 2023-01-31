@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 
 def fc(input_shape, num_classes, dense_classifier=False, pretrained=False, L=6, N=100, nonlinearity=nn.ReLU()):
-  size = np.prod(input_shape)
+  size = int(np.prod(input_shape))
   
   # Linear feature extractor
   modules = [nn.Flatten()]

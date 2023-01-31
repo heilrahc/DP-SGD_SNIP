@@ -1,8 +1,11 @@
 import torch
 import numpy as np
 from backpack import backpack, extend
-from backpack.extensions import (BatchGrad, BatchL2Grad)
+from backpack.extensions import BatchGrad, BatchL2Grad
+from .masked_extensions import MaskedLinearBatchGrad, MaskedConv2dBatchGrad
+from Layers.layers import Linear, Conv2d
 from .dp_sgd import *
+
 
 
 
@@ -142,7 +145,9 @@ class SNIP_DP(Pruner):
         self.noise_factor = 0
 
     def score(self, model, loss, dataloader, device):
-
+        ExtendedBatchGrad = BatchGrad()
+        ExtendedBatchGrad.set_module_extension(Linear, MaskedLinearBatchGrad())
+        ExtendedBatchGrad.set_module_extension(Conv2d, MaskedConv2dBatchGrad())
         # allow masks to have gradient
         for m, _ in self.masked_parameters:
             m.requires_grad = True
@@ -151,14 +156,29 @@ class SNIP_DP(Pruner):
         for batch_idx, (data, target) in enumerate(dataloader):
             data, target = data.to(device), target.to(device)
             output = model(data)
-            with backpack(BatchGrad(), BatchL2Grad()):
+            with backpack(ExtendedBatchGrad):
                 loss(output, target).backward()
+
+            # testing
+            grad_batch_autograd_mask = []
+
+            for input_n, target_n in zip(data.split(1, dim=0), target.split(1, dim=0)):
+                loss_n = loss(model(input_n), target_n)
+                mask_grad_n = torch.autograd.grad(loss_n, [m for m, _ in self.masked_parameters])[0]
+                grad_batch_autograd_mask.append(mask_grad_n)
+
+            grad_batch_autograd_mask = torch.stack(grad_batch_autograd_mask)
+            grad_batch_backpack = []
+            print(
+                "difference:      ",
+                torch.norm(grad_batch_autograd_mask.to(torch.float64) - [m.grad_batch for m, p in self.masked_parameters][0].to(torch.float64)),
+            )
+
             #dp_sgd_backward(self.masked_parameters[0], loss(output, target), device, 1, 1)
 
 
         # calculate score |g * theta|
         for m, p in self.masked_parameters:
-            print(m.grad_batch)
             self.scores[id(p)] = torch.clone(m.grad).detach().abs_()
             p.grad.data.zero_()
             m.grad.data.zero_()
