@@ -11,7 +11,7 @@ class Pruner:
         self.masked_parameters = list(masked_parameters)
         self.scores = {}
 
-    def score(self, model, loss, dataloader, device):
+    def score(self, model, loss, dataloader, device, clip, noise):
         raise NotImplementedError
 
     def _global_mask(self, sparsity):
@@ -91,7 +91,7 @@ class Rand(Pruner):
     def __init__(self, masked_parameters):
         super(Rand, self).__init__(masked_parameters)
 
-    def score(self, model, loss, dataloader, device):
+    def score(self, model, loss, dataloader, device, clip, noise):
         for _, p in self.masked_parameters:
             self.scores[id(p)] = torch.randn_like(p)
 
@@ -99,8 +99,8 @@ class Rand(Pruner):
 class Mag(Pruner):
     def __init__(self, masked_parameters):
         super(Mag, self).__init__(masked_parameters)
-    
-    def score(self, model, loss, dataloader, device):
+
+    def score(self, model, loss, dataloader, device, clip, noise):
         for _, p in self.masked_parameters:
             self.scores[id(p)] = torch.clone(p.data).detach().abs_()
 
@@ -110,7 +110,7 @@ class SNIP(Pruner):
     def __init__(self, masked_parameters):
         super(SNIP, self).__init__(masked_parameters)
 
-    def score(self, model, loss, dataloader, device):
+    def score(self, model, loss, dataloader, device, clip, noise):
 
         # allow masks to have gradient
         for m, _ in self.masked_parameters:
@@ -141,24 +141,25 @@ class SNIP_DP(Pruner):
         self.clip_norm = 0
         self.noise_factor = 0
 
-    def score(self, model, loss, dataloader, device):
+    def score(self, model, loss, dataloader, device, clip, noise):
 
         # allow masks to have gradient
         for m, _ in self.masked_parameters:
             m.requires_grad = True
 
+
         # compute gradient
         for batch_idx, (data, target) in enumerate(dataloader):
             data, target = data.to(device), target.to(device)
             output = model(data)
-            with backpack(BatchGrad(), BatchL2Grad()):
-                loss(output, target).backward()
-            #dp_sgd_backward(self.masked_parameters[0], loss(output, target), device, 1, 1)
+            # with backpack(BatchGrad(), BatchL2Grad()):
+            #     loss(output, target).backward()
+            dp_sgd_backward(self.masked_parameters[0], loss(output, target), device, clip, noise)
 
 
         # calculate score |g * theta|
         for m, p in self.masked_parameters:
-            print(m.grad_batch)
+            # print(m.grad_batch)
             self.scores[id(p)] = torch.clone(m.grad).detach().abs_()
             p.grad.data.zero_()
             m.grad.data.zero_()
@@ -178,7 +179,7 @@ class GraSP(Pruner):
         self.temp = 200
         self.eps = 1e-10
 
-    def score(self, model, loss, dataloader, device):
+    def score(self, model, loss, dataloader, device, clip, noise):
 
         # first gradient vector without computational graph
         stopped_grads = 0
@@ -199,10 +200,10 @@ class GraSP(Pruner):
 
             grads = torch.autograd.grad(L, [p for (_, p) in self.masked_parameters], create_graph=True)
             flatten_grads = torch.cat([g.reshape(-1) for g in grads if g is not None])
-            
+
             gnorm = (stopped_grads * flatten_grads).sum()
             gnorm.backward()
-        
+
         # calculate score Hg * theta (negate to remove top percent)
         for _, p in self.masked_parameters:
             self.scores[id(p)] = torch.clone(p.grad * p.data).detach()
@@ -219,8 +220,8 @@ class SynFlow(Pruner):
     def __init__(self, masked_parameters):
         super(SynFlow, self).__init__(masked_parameters)
 
-    def score(self, model, loss, dataloader, device):
-      
+    def score(self, model, loss, dataloader, device, clip, noise):
+
         @torch.no_grad()
         def linearize(model):
             # model.double()
@@ -235,7 +236,7 @@ class SynFlow(Pruner):
             # model.float()
             for name, param in model.state_dict().items():
                 param.mul_(signs[name])
-        
+
         signs = linearize(model)
 
         (data, _) = next(iter(dataloader))
@@ -243,7 +244,7 @@ class SynFlow(Pruner):
         input = torch.ones([1] + input_dim).to(device)#, dtype=torch.float64).to(device)
         output = model(input)
         torch.sum(output).backward()
-        
+
         for _, p in self.masked_parameters:
             self.scores[id(p)] = torch.clone(p.grad * p).detach().abs_()
             p.grad.data.zero_()
