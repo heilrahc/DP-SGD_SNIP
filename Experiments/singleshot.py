@@ -89,47 +89,75 @@ def run(args):
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.lr_drops, gamma=args.lr_drop_rate)
 
     clip = 1e-5
-    sigma = 1
+    sigmas = np.linspace(0.5, 2, 30)
     delta = 1e-5
-    ## Pre-Train ##
-    print('Pre-Train for {} epochs.'.format(args.pre_epochs))
-    pre_result = train_eval_loop(model, loss, optimizer, scheduler, train_loader,
-                                 test_loader, device, args.pre_epochs, args.verbose)
 
-    ## Prune ##
-    print('Pruning with {} for {} epochs.'.format(args.pruner, args.prune_epochs))
-    pruner = load.pruner(args.pruner)(
-        generator.masked_parameters(model, args.prune_bias, args.prune_batchnorm, args.prune_residual))
-    sparsity = 10 ** (-float(args.compression))
-    prune_loop(model, loss, pruner, prune_loader, device, sparsity,
-               args.compression_schedule, args.mask_scope, args.prune_epochs,
-               clip, sigma,
-               args.reinitialize, args.prune_train_mode, args.shuffle, args.invert)
-    prune_dataset_size = sys.getsizeof([data for idx,(data,target) in enumerate(prune_loader)][0])
-    privacy_analyze(sigma, delta, 1, 1, prune_dataset_size)
+    privacy_losses = []
+    test_losses = []
+    acctop1s = []
+    acctop5s = []
+    idx = 1
+    for sigma in sigmas:
+        test_losses_k = []
+        acctop1s_k = []
+        acctop5s_k = []
+        privacy_losses_k = []
+        for k in range(5):
+            print("iteration: ", idx)
+            idx += 1
+            ## Pre-Train ##
+            print('Pre-Train for {} epochs.'.format(args.pre_epochs))
+            pre_result = train_eval_loop(model, loss, optimizer, scheduler, train_loader,
+                                         test_loader, device, args.pre_epochs, args.verbose)
 
-    ## Post-Train ##
-    print('Post-Training for {} epochs.'.format(args.post_epochs))
-    post_result = train_eval_loop(model, loss, optimizer, scheduler, train_loader,
-                                  test_loader, device, args.post_epochs, args.verbose)
+            ## Prune ##
+            print('Pruning with {} for {} epochs.'.format(args.pruner, args.prune_epochs))
+            pruner = load.pruner(args.pruner)(
+                generator.masked_parameters(model, args.prune_bias, args.prune_batchnorm, args.prune_residual))
+            sparsity = 10 ** (-float(args.compression))
+            prune_loop(model, loss, pruner, prune_loader, device, sparsity,
+                       args.compression_schedule, args.mask_scope, args.prune_epochs,
+                       clip, sigma,
+                       args.reinitialize, args.prune_train_mode, args.shuffle, args.invert)
+            prune_dataset_size = sys.getsizeof([data for idx,(data,target) in enumerate(prune_loader)][0])
+            epsilon, _ = privacy_analyze(sigma, delta, 1, 1, prune_dataset_size)
 
-    ## Display Results ##
-    frames = [pre_result.head(1), pre_result.tail(1), post_result.head(1), post_result.tail(1)]
-    train_result = pd.concat(frames, keys=['Init.', 'Pre-Prune', 'Post-Prune', 'Final'])
-    prune_result = metrics.summary(model,
-                                   pruner.scores,
-                                   metrics.flop(model, input_shape, device),
-                                   lambda p: generator.prunable(p, args.prune_batchnorm, args.prune_residual))
-    total_params = int((prune_result['sparsity'] * prune_result['size']).sum())
-    possible_params = prune_result['size'].sum()
-    total_flops = int((prune_result['sparsity'] * prune_result['flops']).sum())
-    possible_flops = prune_result['flops'].sum()
+            ## Post-Train ##
+            print('Post-Training for {} epochs.'.format(args.post_epochs))
+            post_result = train_eval_loop(model, loss, optimizer, scheduler, train_loader,
+                                          test_loader, device, args.post_epochs, args.verbose)
 
-    print("Train results:\n", train_result)
-    print("Prune results:\n", prune_result)
-    print("Parameter Sparsity: {}/{} ({:.4f})".format(total_params, possible_params, total_params / possible_params))
-    print("FLOP Sparsity: {}/{} ({:.4f})".format(total_flops, possible_flops, total_flops / possible_flops))
+            ## Display Results ##
+            frames = [pre_result.head(1), pre_result.tail(1), post_result.head(1), post_result.tail(1)]
+            train_result = pd.concat(frames, keys=['Init.', 'Pre-Prune', 'Post-Prune', 'Final'])
+            prune_result = metrics.summary(model,
+                                           pruner.scores,
+                                           metrics.flop(model, input_shape, device),
+                                           lambda p: generator.prunable(p, args.prune_batchnorm, args.prune_residual))
+            total_params = int((prune_result['sparsity'] * prune_result['size']).sum())
+            possible_params = prune_result['size'].sum()
+            total_flops = int((prune_result['sparsity'] * prune_result['flops']).sum())
+            possible_flops = prune_result['flops'].sum()
 
+            test_losses_k.append(post_result.tail(1)['test_loss'].iloc[0])
+            acctop1s_k.append(post_result.tail(1)['top1_accuracy'].iloc[0])
+            acctop5s_k.append(post_result.tail(1)['top5_accuracy'].iloc[0])
+            privacy_losses_k.append(epsilon)
+
+        test_losses.append(np.mean(test_losses_k))
+        acctop1s.append(np.mean(acctop1s_k))
+        acctop5s.append(np.mean(acctop5s_k))
+        privacy_losses.append(np.mean(privacy_losses_k))
+
+        # print("Train results:\n", train_result)
+        # print("Prune results:\n", prune_result)
+        # print("Parameter Sparsity: {}/{} ({:.4f})".format(total_params, possible_params, total_params / possible_params))
+        # print("FLOP Sparsity: {}/{} ({:.4f})".format(total_flops, possible_flops, total_flops / possible_flops))
+
+    plotGraph(privacy_losses, test_losses, "epsilons", "test_losses")
+    plotGraph(privacy_losses, acctop1s, "epsilons", "acctop1s")
+    plotGraph(privacy_losses, acctop5s, "epsilons", "acctop5s")
+    plotGraph(sigmas, privacy_losses, "sigmas", "privacy_losses")
 
     ## Save Results and Model ##
     if args.save:
