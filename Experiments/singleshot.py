@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from backpack import extend
 import tensorflow as tf
+import statistics
 import matplotlib.pyplot as plt
 from autodp import rdp_acct, rdp_bank
 from Utils import load
@@ -82,6 +83,7 @@ def run(args):
                                                      args.dense_classifier, 
                                                      args.pretrained).to(device)
     loss = nn.CrossEntropyLoss()
+    model = nn.DataParallel(model)
     model = extend(model)
     loss = extend(loss)
     opt_class, opt_kwargs = load.optimizer(args.optimizer)
@@ -96,6 +98,9 @@ def run(args):
     test_losses = []
     acctop1s = []
     acctop5s = []
+    test_losses_e = []
+    acctop1s_e = []
+    acctop5s_e = []
     idx = 1
     for sigma in sigmas:
         test_losses_k = []
@@ -147,31 +152,21 @@ def run(args):
         test_losses.append(np.mean(test_losses_k))
         acctop1s.append(np.mean(acctop1s_k))
         acctop5s.append(np.mean(acctop5s_k))
+        test_losses_e.append(statistics.stdev(test_losses_k))
+        acctop1s_e.append(statistics.stdev(acctop1s_k))
+        acctop5s_e.append(statistics.stdev(acctop5s_k))
         privacy_losses.append(np.mean(privacy_losses_k))
 
-        # print("Train results:\n", train_result)
-        # print("Prune results:\n", prune_result)
-        # print("Parameter Sparsity: {}/{} ({:.4f})".format(total_params, possible_params, total_params / possible_params))
-        # print("FLOP Sparsity: {}/{} ({:.4f})".format(total_flops, possible_flops, total_flops / possible_flops))
 
-    plotGraph(privacy_losses, test_losses, "epsilons", "test_losses")
-    plotGraph(privacy_losses, acctop1s, "epsilons", "acctop1s")
-    plotGraph(privacy_losses, acctop5s, "epsilons", "acctop5s")
-    plotGraph(sigmas, privacy_losses, "sigmas", "privacy_losses")
+    plotGraph(privacy_losses, test_losses, test_losses_e, "epsilons", "test_losses")
+    plotGraph(privacy_losses, acctop1s, acctop1s_e, "epsilons", "acctop1s")
+    plotGraph(privacy_losses, acctop5s, acctop5s_e, "epsilons", "acctop5s")
 
-    ## Save Results and Model ##
-    if args.save:
-        print('Saving results.')
-        pre_result.to_pickle("{}/pre-train.pkl".format(args.result_dir))
-        post_result.to_pickle("{}/post-train.pkl".format(args.result_dir))
-        prune_result.to_pickle("{}/compression.pkl".format(args.result_dir))
-        torch.save(model.state_dict(),"{}/model.pt".format(args.result_dir))
-        torch.save(optimizer.state_dict(),"{}/optimizer.pt".format(args.result_dir))
-        torch.save(scheduler.state_dict(),"{}/scheduler.pt".format(args.result_dir))
 
-def plotGraph(x, y, x_label, y_label):
+
+def plotGraph(x, y, e, x_label, y_label):
     folder = "Results/plots"
-    plt.plot(x, y)
+    plt.errorbar(x, y, yerr=e, fmt='-o')
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     pltsName = x_label + y_label + ".png"
