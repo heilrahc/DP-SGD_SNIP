@@ -66,6 +66,9 @@ def privacy_analyze(sigma, delta, epochs, batch, dataset_size):
 
 def run(args):
     ## Random Seed and Device ##
+    print("GPU AVAILABLE?:", torch.cuda.is_available())
+    print(torch.version.cuda)  # prints the CUDA version
+    print(torch.backends.cudnn.version())  # prints the cuDNN version
     torch.manual_seed(args.seed)
     device = load.device(args.gpu)
 
@@ -82,6 +85,7 @@ def run(args):
                                                      num_classes, 
                                                      args.dense_classifier, 
                                                      args.pretrained).to(device)
+    #TODO: restore pretrained model's weight(prob not here)
     loss = nn.CrossEntropyLoss()
     model = nn.DataParallel(model)
     model = extend(model)
@@ -91,7 +95,7 @@ def run(args):
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.lr_drops, gamma=args.lr_drop_rate)
 
     clip = 1e-5
-    sigmas = np.linspace(0.5, 2, 30)
+    sigmas = np.linspace(1.5, 2, 1)
     delta = 1e-5
 
     privacy_losses = []
@@ -143,6 +147,12 @@ def run(args):
             possible_params = prune_result['size'].sum()
             total_flops = int((prune_result['sparsity'] * prune_result['flops']).sum())
             possible_flops = prune_result['flops'].sum()
+
+            print("Train results:\n", train_result)
+            print("Prune results:\n", prune_result)
+            print("Parameter Sparsity: {}/{} ({:.4f})".format(total_params, possible_params,
+                                                              total_params / possible_params))
+            print("FLOP Sparsity: {}/{} ({:.4f})".format(total_flops, possible_flops, total_flops / possible_flops))
 
             test_losses_k.append(post_result.tail(1)['test_loss'].iloc[0])
             acctop1s_k.append(post_result.tail(1)['top1_accuracy'].iloc[0])

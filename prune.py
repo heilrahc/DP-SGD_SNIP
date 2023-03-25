@@ -21,8 +21,12 @@ def prune_loop(model, loss, pruner, dataloader, device, sparsity, schedule, scop
         # Invert scores
         if invert:
             pruner.invert()
-        pruner.mask(sparse, scope)
-    
+        mask_param = pruner.mask(sparse, scope)
+
+
+        np.savez("DP-SGD_SNIP/pruned_torch_weights.npz", **weights_np)
+        print("---------pruned weights stored----------")
+
     # Reainitialize weights
     if reinitialize:
         model._initialize_weights()

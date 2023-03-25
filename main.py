@@ -21,7 +21,7 @@ if __name__ == '__main__':
                         'resnet18','resnet20','resnet32','resnet34','resnet44','resnet50',
                         'resnet56','resnet101','resnet110','resnet110','resnet152','resnet1202',
                         'wide-resnet18','wide-resnet20','wide-resnet32','wide-resnet34','wide-resnet44','wide-resnet50',
-                        'wide-resnet56','wide-resnet101','wide-resnet110','wide-resnet110','wide-resnet152','wide-resnet1202'],
+                        'wide-resnet56','wide-resnet101','wide-resnet110','wide-resnet110','wide-resnet152','wide-resnet1202', 'wide-resnet2810'],
                         help='model architecture (default: fc)')
     training_args.add_argument('--model-class', type=str, default='default', choices=['default','lottery','tinyimagenet','imagenet'],
                         help='model class (default: default)')

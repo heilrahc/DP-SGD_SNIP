@@ -4,11 +4,12 @@ import torch
 import torch.nn as nn
 from .utils import load_state_dict_from_url
 from Layers import layers
-
+import torch.nn.functional as F
+import math
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
-           'wide_resnet50_2', 'wide_resnet101_2']
+           'wide_resnet50_2', 'wide_resnet101_2', "wide_resnet28_10"]
 
 
 model_urls = {
@@ -128,7 +129,7 @@ class ResNet(nn.Module):
 
     def __init__(self, block, layer_list, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
-                 norm_layer=None):
+                 norm_layer=None, input_size=224):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = layers.BatchNorm2d
@@ -145,8 +146,14 @@ class ResNet(nn.Module):
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = layers.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
-                                   bias=False)
+        if input_size == 32:
+            self.conv1 = layers.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1,
+                                       bias=False)
+        else:
+            self.conv1 = layers.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
+                                       bias=False)
+        # self.conv1 = layers.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
+        #                            bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -223,8 +230,8 @@ class ResNet(nn.Module):
         return self._forward_impl(x)
 
 
-def _resnet(arch, block, layer_list, pretrained, progress, **kwargs):
-    model = ResNet(block, layer_list, **kwargs)
+def _resnet(arch, block, layer_list, pretrained, progress, input_size, **kwargs):
+    model = ResNet(block, layer_list, input_size=input_size, **kwargs)
     if pretrained:
         pretrained_dict = load_state_dict_from_url(model_urls[arch],
                                                    progress=progress)
@@ -309,7 +316,7 @@ def wide_resnet50_2(input_shape, num_classes, dense_classifier=False, pretrained
     """
     kwargs['width_per_group'] = 64 * 2
     return _resnet('wide_resnet50_2', Bottleneck, [3, 4, 6, 3],
-                   pretrained, progress, **kwargs)
+                   pretrained, progress,input_shape, **kwargs)
 
 
 def wide_resnet101_2(input_shape, num_classes, dense_classifier=False, pretrained=False, progress=True, **kwargs):
@@ -327,4 +334,98 @@ def wide_resnet101_2(input_shape, num_classes, dense_classifier=False, pretraine
     """
     kwargs['width_per_group'] = 64 * 2
     return _resnet('wide_resnet101_2', Bottleneck, [3, 4, 23, 3],
-                   pretrained, progress, **kwargs)
+                   pretrained, progress, input_shape, **kwargs)
+
+class WideResNet(nn.Module):
+    def __init__(self, depth, width, num_classes, zero_init_residual=False,):
+        super(WideResNet, self).__init__()
+
+        self.in_planes = 16
+        self.num_blocks = (depth - 4) // 6
+        self.width = width
+
+        self.conv1 = layers.Conv2d(3, self.in_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.layer1 = self._make_layer(16 * width)
+        self.layer2 = self._make_layer(32 * width, stride=2)
+        self.layer3 = self._make_layer(64 * width, stride=2)
+        self.bn1 = layers.BatchNorm2d(64 * width)
+        self.relu = nn.ReLU(inplace=True)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = layers.Linear(64 * width, num_classes)
+
+        for m in self.modules():
+            if isinstance(m, layers.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, (layers.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+        # Zero-initialize the last BN in each residual branch,
+        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
+        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
+        if zero_init_residual:
+            for m in self.modules():
+                if isinstance(m, Bottleneck):
+                    nn.init.constant_(m.bn3.weight, 0)
+                elif isinstance(m, BasicBlock):
+                    nn.init.constant_(m.bn2.weight, 0)
+
+    def _make_layer(self, planes, stride=1):
+        layers = []
+        layers.append(WideResNetBlock(self.in_planes, planes, stride))
+        self.in_planes = planes
+        for i in range(self.num_blocks - 1):
+            layers.append(WideResNetBlock(self.in_planes, planes, stride=1))
+            self.in_planes = planes
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
+
+class WideResNetBlock(nn.Module):
+    def __init__(self, in_planes, planes, stride):
+        super(WideResNetBlock, self).__init__()
+        self.bn1 = layers.BatchNorm2d(in_planes)
+        self.conv1 = layers.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = layers.BatchNorm2d(planes)
+        self.conv2 = layers.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.equalInOut = in_planes == planes
+        self.conv_res = layers.Conv2d(in_planes, planes, kernel_size=1, stride=stride, padding=0, bias=False)
+        self.conv_res = not self.equalInOut and self.conv_res or None
+
+    def forward(self, x):
+        if not self.equalInOut:
+            x = self.relu(self.bn1(x))
+        else:
+            out = self.relu(self.bn1(x))
+            x = out
+
+        out = self.relu(self.bn2(self.conv1(x)))
+        out = self.conv2(out)
+
+        if not self.equalInOut:
+            res = self.conv_res(x)
+        else:
+            res = x
+
+        out += res
+        return out
+
+
+def wide_resnet28_10(input_shape, num_classes, dense_classifier=False, pretrained=False, progress=True, **kwargs):
+    r"""Wide ResNet-101-2 model from
+    `"Wide Residual Networks" <https://arxiv.org/pdf/1605.07146.pdf>`
+    """
+
+    model = WideResNet(depth=28, width=10, num_classes=num_classes, zero_init_residual=False)
+    return model

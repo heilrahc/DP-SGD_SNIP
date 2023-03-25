@@ -20,6 +20,7 @@ def prunable(module, batchnorm, residual):
         isprunable |= isinstance(module, (layers.BatchNorm1d, layers.BatchNorm2d))
     if residual:
         isprunable |= isinstance(module, (layers.Identity1d, layers.Identity2d))
+
     return isprunable
 
 def parameters(model):
@@ -34,7 +35,10 @@ def masked_parameters(model, bias=False, batchnorm=False, residual=False):
     r"""Returns an iterator over models prunable parameters, yielding both the
     mask and parameter tensors.
     """
+
     for module in filter(lambda p: prunable(p, batchnorm, residual), model.modules()):
+        print(module)
         for mask, param in zip(masks(module), module.parameters(recurse=False)):
+            # print(mask)
             if param is not module.bias or bias is True:
                 yield mask, param

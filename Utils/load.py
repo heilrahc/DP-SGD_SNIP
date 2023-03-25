@@ -11,6 +11,8 @@ from Models import imagenet_vgg
 from Models import imagenet_resnet
 from Pruners import pruners
 from Utils import custom_datasets
+import tensorflow_datasets as tfds
+from PIL import Image
 
 def device(gpu):
     use_cuda = torch.cuda.is_available()
@@ -38,6 +40,35 @@ def get_transform(size, padding, mean, std, preprocess):
     transform.append(transforms.Normalize(mean, std))
     return transforms.Compose(transform)
 
+
+class CustomTensorDataset:
+    def __init__(self, tfds_dataset, transform):
+        self.tfds_dataset = tfds_dataset
+        self.transform = transform
+        self.numpy_iterator = iter(self.tfds_dataset.as_numpy_iterator())  # Add this line
+
+    def __getitem__(self, index):
+        try:
+            item = next(self.numpy_iterator)  # Modify this line
+        except StopIteration:
+            # Reset the iterator and raise IndexError
+            self.numpy_iterator = iter(self.tfds_dataset.as_numpy_iterator())
+            raise IndexError("Index out of bounds")
+
+        image = item['image']
+        label = item['label']
+        image = np.transpose(image, (2, 0, 1))  # Change from HWC to CHW format
+
+        # Convert image to a PIL Image and apply the transformations
+        image = transforms.ToPILImage()(image)
+        image = self.transform(image)
+
+        return image, torch.tensor(label, dtype=torch.long)
+
+    def __len__(self):
+        return len(self.tfds_dataset)
+
+
 def dataloader(dataset, batch_size, train, workers, length=None):
     # Dataset
     if dataset == 'mnist':
@@ -60,7 +91,7 @@ def dataloader(dataset, batch_size, train, workers, length=None):
         mean, std = (0.485, 0.456, 0.406), (0.229, 0.224, 0.225)
         if train:
             transform = transforms.Compose([
-                transforms.RandomResizedCrop(224, scale=(0.2,1.)),
+                transforms.RandomResizedCrop(32, scale=(0.2, 1.)),
                 transforms.RandomGrayscale(p=0.2),
                 transforms.ColorJitter(0.4, 0.4, 0.4, 0.4),
                 transforms.RandomHorizontalFlip(),
@@ -68,13 +99,14 @@ def dataloader(dataset, batch_size, train, workers, length=None):
                 transforms.Normalize(mean, std)])
         else:
             transform = transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
+                transforms.Resize(32),
+                transforms.CenterCrop(32),
                 transforms.ToTensor(),
                 transforms.Normalize(mean, std)])
-        folder = 'Data/imagenet_raw/{}'.format('train' if train else 'val')
-        dataset = datasets.ImageFolder(folder, transform=transform)
-    
+        tfds_dataset, info = tfds.load("imagenet_resized/32x32", split="train", with_info=True,
+                                       data_dir="DP-SGD_SNIP/Data")
+        dataset = CustomTensorDataset(tfds_dataset, transform)
+
     # Dataloader
     use_cuda = torch.cuda.is_available()
     kwargs = {'num_workers': workers, 'pin_memory': True} if use_cuda else {}
@@ -153,6 +185,7 @@ def model(model_architecture, model_class):
         'resnet152' : imagenet_resnet.resnet152,
         'wide-resnet50' : imagenet_resnet.wide_resnet50_2,
         'wide-resnet101' : imagenet_resnet.wide_resnet101_2,
+        'wide-resnet2810': imagenet_resnet.wide_resnet28_10
     }
     models = {
         'default' : default_models,

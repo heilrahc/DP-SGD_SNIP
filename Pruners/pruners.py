@@ -53,6 +53,7 @@ class Pruner:
             self._global_mask(sparsity)
         if scope == 'local':
             self._local_mask(sparsity)
+        return [mask for mask, _ in self.masked_parameters]
 
     @torch.no_grad()
     def apply_mask(self):

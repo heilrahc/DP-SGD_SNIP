@@ -20,20 +20,22 @@ def train(model, loss, optimizer, dataloader, device, epoch, verbose, log_interv
                 100. * batch_idx / len(dataloader), train_loss.item()))
     return total / len(dataloader.dataset)
 
+
 def eval(model, loss, dataloader, device, verbose):
     model.eval()
     total = 0
     correct1 = 0
     correct5 = 0
     with torch.no_grad():
-        for data, target in dataloader:
+        for batch_idx, (data, target) in enumerate(dataloader):
             data, target = data.to(device), target.to(device)
             output = model(data)
             total += loss(output, target).item() * data.size(0)
             _, pred = output.topk(5, dim=1)
             correct = pred.eq(target.view(-1, 1).expand_as(pred))
-            correct1 += correct[:,:1].sum().item()
-            correct5 += correct[:,:5].sum().item()
+            correct1 += correct[:, :1].sum().item()
+            correct5 += correct[:, :5].sum().item()
+            print('Batch index:', batch_idx)
     average_loss = total / len(dataloader.dataset)
     accuracy1 = 100. * correct1 / len(dataloader.dataset)
     accuracy5 = 100. * correct5 / len(dataloader.dataset)
