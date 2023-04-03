@@ -21,10 +21,14 @@ def prune_loop(model, loss, pruner, dataloader, device, sparsity, schedule, scop
         # Invert scores
         if invert:
             pruner.invert()
+
         mask_param = pruner.mask(sparse, scope)
 
+        for k, v in mask_param:
+            print(k, v.shape)
+        weights_np = {k: v.numpy() for k, v in mask_param}
 
-        np.savez("DP-SGD_SNIP/pruned_torch_weights.npz", **weights_np)
+        np.savez("jax_privacy/pruned_torch_weights.npz", **weights_np)
         print("---------pruned weights stored----------")
 
     # Reainitialize weights

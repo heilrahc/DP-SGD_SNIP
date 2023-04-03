@@ -15,7 +15,7 @@ def dp_sgd_backward(params, loss, device, clip_norm, noise_factor):
   :return:
   """
   if not isinstance(params, list):
-    params = [p for p in params]
+    params = [p for p in params if not isinstance(p, str)]
 
   #with backpack(BatchGrad(), BatchL2Grad()):
   loss.backward()

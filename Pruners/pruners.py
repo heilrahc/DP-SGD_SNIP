@@ -28,7 +28,7 @@ class Pruner:
         k = int((1.0 - sparsity) * global_scores.numel())
         if not k < 1:
             threshold, _ = torch.kthvalue(global_scores, k)
-            for mask, param in self.masked_parameters:
+            for mask, param, _ in self.masked_parameters:
                 score = self.scores[id(param)] 
                 zero = torch.tensor([0.]).to(mask.device)
                 one = torch.tensor([1.]).to(mask.device)
@@ -37,7 +37,7 @@ class Pruner:
     def _local_mask(self, sparsity):
         r"""Updates masks of model with scores by sparsity level parameter-wise.
         """
-        for mask, param in self.masked_parameters:
+        for mask, param, _ in self.masked_parameters:
             score = self.scores[id(param)]
             k = int((1.0 - sparsity) * score.numel())
             if not k < 1:
@@ -53,24 +53,24 @@ class Pruner:
             self._global_mask(sparsity)
         if scope == 'local':
             self._local_mask(sparsity)
-        return [mask for mask, _ in self.masked_parameters]
+        return [(name, mask) for mask, _, name in self.masked_parameters]
 
     @torch.no_grad()
     def apply_mask(self):
         r"""Applies mask to prunable parameters.
         """
-        for mask, param in self.masked_parameters:
+        for mask, param, _ in self.masked_parameters:
             param.mul_(mask)
 
     def alpha_mask(self, alpha):
         r"""Set all masks to alpha in model.
         """
-        for mask, _ in self.masked_parameters:
+        for mask, _, _ in self.masked_parameters:
             mask.fill_(alpha)
 
     # Based on https://github.com/facebookresearch/open_lth/blob/master/utils/tensor_utils.py#L43
     def shuffle(self):
-        for mask, param in self.masked_parameters:
+        for mask, param, _ in self.masked_parameters:
             shape = mask.shape
             perm = torch.randperm(mask.nelement())
             mask = mask.reshape(-1)[perm].reshape(shape)
@@ -83,7 +83,7 @@ class Pruner:
         r"""Returns remaining and total number of prunable parameters.
         """
         remaining_params, total_params = 0, 0 
-        for mask, _ in self.masked_parameters:
+        for mask, _, _ in self.masked_parameters:
              remaining_params += mask.detach().cpu().numpy().sum()
              total_params += mask.numel()
         return remaining_params, total_params
@@ -94,7 +94,7 @@ class Rand(Pruner):
         super(Rand, self).__init__(masked_parameters)
 
     def score(self, model, loss, dataloader, device, clip, noise):
-        for _, p in self.masked_parameters:
+        for _, p, _ in self.masked_parameters:
             self.scores[id(p)] = torch.randn_like(p)
 
 
@@ -103,7 +103,7 @@ class Mag(Pruner):
         super(Mag, self).__init__(masked_parameters)
 
     def score(self, model, loss, dataloader, device, clip, noise):
-        for _, p in self.masked_parameters:
+        for _, p, _ in self.masked_parameters:
             self.scores[id(p)] = torch.clone(p.data).detach().abs_()
 
 
@@ -115,7 +115,7 @@ class SNIP(Pruner):
     def score(self, model, loss, dataloader, device, clip, noise):
 
         # allow masks to have gradient
-        for m, _ in self.masked_parameters:
+        for m, _, _ in self.masked_parameters:
             m.requires_grad = True
 
         # compute gradient
@@ -125,7 +125,7 @@ class SNIP(Pruner):
             loss(output, target).backward()
 
         # calculate score |g * theta|
-        for m, p in self.masked_parameters:
+        for m, p, _ in self.masked_parameters:
             self.scores[id(p)] = torch.clone(m.grad).detach().abs_()
             p.grad.data.zero_()
             m.grad.data.zero_()
@@ -134,7 +134,7 @@ class SNIP(Pruner):
         # normalize score
         all_scores = torch.cat([torch.flatten(v) for v in self.scores.values()])
         norm = torch.sum(all_scores)
-        for _, p in self.masked_parameters:
+        for _, p, _ in self.masked_parameters:
             self.scores[id(p)].div_(norm)
 
 class SNIP_DP(Pruner):
@@ -146,7 +146,7 @@ class SNIP_DP(Pruner):
     def score(self, model, loss, dataloader, device, clip, noise):
 
         # allow masks to have gradient
-        for m, _ in self.masked_parameters:
+        for m, _, _ in self.masked_parameters:
             m.requires_grad = True
 
 
@@ -160,7 +160,7 @@ class SNIP_DP(Pruner):
 
 
         # calculate score |g * theta|
-        for m, p in self.masked_parameters:
+        for m, p, _ in self.masked_parameters:
             # print(m.grad_batch)
             self.scores[id(p)] = torch.clone(m.grad).detach().abs_()
             p.grad.data.zero_()
@@ -170,7 +170,7 @@ class SNIP_DP(Pruner):
         # normalize score
         all_scores = torch.cat([torch.flatten(v) for v in self.scores.values()])
         norm = torch.sum(all_scores)
-        for _, p in self.masked_parameters:
+        for _, p, _ in self.masked_parameters:
             self.scores[id(p)].div_(norm)
 
 
@@ -190,7 +190,7 @@ class GraSP(Pruner):
             output = model(data) / self.temp
             L = loss(output, target)
 
-            grads = torch.autograd.grad(L, [p for (_, p) in self.masked_parameters], create_graph=False)
+            grads = torch.autograd.grad(L, [p for (_, p, _) in self.masked_parameters], create_graph=False)
             flatten_grads = torch.cat([g.reshape(-1) for g in grads if g is not None])
             stopped_grads += flatten_grads
 
@@ -200,21 +200,21 @@ class GraSP(Pruner):
             output = model(data) / self.temp
             L = loss(output, target)
 
-            grads = torch.autograd.grad(L, [p for (_, p) in self.masked_parameters], create_graph=True)
+            grads = torch.autograd.grad(L, [p for (_, p, _) in self.masked_parameters], create_graph=True)
             flatten_grads = torch.cat([g.reshape(-1) for g in grads if g is not None])
 
             gnorm = (stopped_grads * flatten_grads).sum()
             gnorm.backward()
 
         # calculate score Hg * theta (negate to remove top percent)
-        for _, p in self.masked_parameters:
+        for _, p, _ in self.masked_parameters:
             self.scores[id(p)] = torch.clone(p.grad * p.data).detach()
             p.grad.data.zero_()
 
         # normalize score
         all_scores = torch.cat([torch.flatten(v) for v in self.scores.values()])
         norm = torch.abs(torch.sum(all_scores)) + self.eps
-        for _, p in self.masked_parameters:
+        for _, p, _ in self.masked_parameters:
             self.scores[id(p)].div_(norm)
 
 
@@ -247,7 +247,7 @@ class SynFlow(Pruner):
         output = model(input)
         torch.sum(output).backward()
 
-        for _, p in self.masked_parameters:
+        for _, p, _ in self.masked_parameters:
             self.scores[id(p)] = torch.clone(p.grad * p).detach().abs_()
             p.grad.data.zero_()
 

@@ -8,8 +8,9 @@ from torch.nn.modules.utils import _pair
 
 
 class Linear(nn.Linear):
-    def __init__(self, in_features, out_features, bias=True):
-        super(Linear, self).__init__(in_features, out_features, bias)        
+    def __init__(self, in_features, out_features, bias=True, name=None):
+        super(Linear, self).__init__(in_features, out_features, bias)
+        self.name = name
         self.register_buffer('weight_mask', torch.ones(self.weight.shape))
         if self.bias is not None:
             self.register_buffer('bias_mask', torch.ones(self.bias.shape))
@@ -26,10 +27,11 @@ class Linear(nn.Linear):
 class Conv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1,
-                 bias=True, padding_mode='zeros'):
+                 bias=True, padding_mode='zeros', name=None):
         super(Conv2d, self).__init__(
             in_channels, out_channels, kernel_size, stride, padding, 
             dilation, groups, bias, padding_mode)
+        self.name = name
         self.register_buffer('weight_mask', torch.ones(self.weight.shape))
         if self.bias is not None:
             self.register_buffer('bias_mask', torch.ones(self.bias.shape))
@@ -53,9 +55,10 @@ class Conv2d(nn.Conv2d):
 
 class BatchNorm1d(nn.BatchNorm1d):
     def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
-                 track_running_stats=True):
+                 track_running_stats=True, name=None):
         super(BatchNorm1d, self).__init__(
             num_features, eps, momentum, affine, track_running_stats)
+        self.name=name
         if self.affine:     
             self.register_buffer('weight_mask', torch.ones(self.weight.shape))
             self.register_buffer('bias_mask', torch.ones(self.bias.shape))
@@ -94,9 +97,10 @@ class BatchNorm1d(nn.BatchNorm1d):
 
 class BatchNorm2d(nn.BatchNorm2d):
     def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
-                 track_running_stats=True):
+                 track_running_stats=True, name=None):
         super(BatchNorm2d, self).__init__(
             num_features, eps, momentum, affine, track_running_stats)
+        self.name = name
         if self.affine:     
             self.register_buffer('weight_mask', torch.ones(self.weight.shape))
             self.register_buffer('bias_mask', torch.ones(self.bias.shape))
