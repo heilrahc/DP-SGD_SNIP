@@ -55,6 +55,9 @@ class Pruner:
             self._local_mask(sparsity)
         return [(name, mask) for mask, _, name in self.masked_parameters]
 
+    def param(self):
+        return [(name, param) for _, param, name in self.masked_parameters]
+
     @torch.no_grad()
     def apply_mask(self):
         r"""Applies mask to prunable parameters.
@@ -115,8 +118,9 @@ class SNIP(Pruner):
     def score(self, model, loss, dataloader, device, clip, noise):
 
         # allow masks to have gradient
-        for m, _, _ in self.masked_parameters:
+        for m, p, _ in self.masked_parameters:
             m.requires_grad = True
+            print(p.requires_grad)
 
         # compute gradient
         for batch_idx, (data, target) in enumerate(dataloader):
@@ -140,8 +144,6 @@ class SNIP(Pruner):
 class SNIP_DP(Pruner):
     def __init__(self, masked_parameters):
         super(SNIP_DP, self).__init__(masked_parameters)
-        self.clip_norm = 0
-        self.noise_factor = 0
 
     def score(self, model, loss, dataloader, device, clip, noise):
 
@@ -154,14 +156,14 @@ class SNIP_DP(Pruner):
         for batch_idx, (data, target) in enumerate(dataloader):
             data, target = data.to(device), target.to(device)
             output = model(data)
-            # with backpack(BatchGrad(), BatchL2Grad()):
-            #     loss(output, target).backward()
-            dp_sgd_backward(self.masked_parameters[0], loss(output, target), device, clip, noise)
+            # # with backpack(BatchGrad(), BatchL2Grad()):
+            # loss(output, target).backward()
+            dp_sgd_backward([m for m, _, _ in self.masked_parameters], loss(output, target), device, clip, noise)
+            # dp_sgd_backward(self.masked_parameters[1], loss(output, target), device, clip, noise)
 
 
         # calculate score |g * theta|
         for m, p, _ in self.masked_parameters:
-            # print(m.grad_batch)
             self.scores[id(p)] = torch.clone(m.grad).detach().abs_()
             p.grad.data.zero_()
             m.grad.data.zero_()

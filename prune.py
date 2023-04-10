@@ -2,6 +2,14 @@ from tqdm import tqdm
 import torch
 import numpy as np
 
+
+def get_sparsity(tensor):
+    total_elements = tensor.size
+    zero_elements = np.count_nonzero(tensor == 0)
+    sparsity_ratio = zero_elements / total_elements
+    return sparsity_ratio
+
+
 def prune_loop(model, loss, pruner, dataloader, device, sparsity, schedule, scope, epochs, clip, noise,
                reinitialize=False, train_mode=False, shuffle=False, invert=False):
     r"""Applies score mask loop iteratively to a final sparsity level.
@@ -21,14 +29,20 @@ def prune_loop(model, loss, pruner, dataloader, device, sparsity, schedule, scop
         # Invert scores
         if invert:
             pruner.invert()
+        mask = pruner.mask(sparse, scope)
+        param = pruner.param()
 
-        mask_param = pruner.mask(sparse, scope)
+        # for k, v in param:
+        #     print(k, v.shape)
+        mask_np = {k: v.cpu().numpy() for k, v in mask}
+        param_np = {k: v.cpu().detach().numpy() for k, v in param}
+        # for k, v in mask_np.items():
+        #     print(k, get_sparsity(v))
 
-        for k, v in mask_param:
-            print(k, v.shape)
-        weights_np = {k: v.numpy() for k, v in mask_param}
-
-        np.savez("jax_privacy/pruned_torch_weights.npz", **weights_np)
+        np.savez("jax_privacy/pruned_torch_weights.npz", **mask_np)
+        np.savez("jax_privacy/jax_privacy/pruned_torch_weights.npz", **mask_np)
+        np.savez("jax_privacy/torch_params.npz", **param_np)
+        np.savez("jax_privacy/jax_privacy/torch_params.npz", **param_np)
         print("---------pruned weights stored----------")
 
     # Reainitialize weights

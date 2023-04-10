@@ -2,6 +2,7 @@ import torch as pt
 import numpy as np
 from backpack import backpack
 from backpack.extensions import BatchGrad, BatchL2Grad
+from torch.nn.utils import clip_grad_norm_
 
 
 def dp_sgd_backward(params, loss, device, clip_norm, noise_factor):
@@ -17,10 +18,16 @@ def dp_sgd_backward(params, loss, device, clip_norm, noise_factor):
   if not isinstance(params, list):
     params = [p for p in params if not isinstance(p, str)]
 
-  #with backpack(BatchGrad(), BatchL2Grad()):
   loss.backward()
 
   squared_param_norms = [pt.norm(p.grad) for p in params]  # first we get all the squared parameter norms...
+  squared_param_norms_de = [pt.norm(p.grad).cpu().detach() for p in params]
+
+  # experiment of choosing a clip
+  percentile = 95
+  clip_norm = np.percentile(squared_param_norms_de, percentile)
+  print(clip_norm)
+
   global_norms = pt.sqrt(pt.sum(pt.stack(squared_param_norms), dim=0))  # ...then compute the global norms...
   global_clips = pt.clamp_max(clip_norm / global_norms, 1.)  # ...and finally get a vector of clipping factors
 

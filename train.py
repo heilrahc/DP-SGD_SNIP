@@ -35,7 +35,7 @@ def eval(model, loss, dataloader, device, verbose):
             correct = pred.eq(target.view(-1, 1).expand_as(pred))
             correct1 += correct[:, :1].sum().item()
             correct5 += correct[:, :5].sum().item()
-            print('Batch index:', batch_idx)
+            # print('Batch index:', batch_idx)
     average_loss = total / len(dataloader.dataset)
     accuracy1 = 100. * correct1 / len(dataloader.dataset)
     accuracy5 = 100. * correct5 / len(dataloader.dataset)
