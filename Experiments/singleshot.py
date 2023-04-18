@@ -79,17 +79,7 @@ def run(args):
     test_losses = []
     acctop1s = []
     acctop5s = []
-    sigmas = [0.1,
-              0.5,
-              0.55,
-              0.6,
-              0.65,
-              0.7,
-              0.75,
-              1.0,
-              1.5,
-              2,
-              10]
+    sigmas = [5]
     clips = [1, 0.5, 0.1, 0.01, 1e-3, 1e-4, 1e-5]
     # test_losses_e = []
     # acctop1s_e = []
@@ -136,70 +126,71 @@ def run(args):
             sparsity = 10 ** (-float(args.compression))
             prune_loop(model, loss, pruner, prune_loader, device, sparsity,
                        args.compression_schedule, args.mask_scope, args.prune_epochs,
-                       clip, sigma,
+                       clip, sigma, args,
                        args.reinitialize, args.prune_train_mode, args.shuffle, args.invert)
             prune_dataset_size = sys.getsizeof([data for idx,(data,target) in enumerate(prune_loader)][0])
 
             epsilon, _ = privacy_analyze(sigma, delta, 1, 1, prune_dataset_size)
             print("Epsilon: ", epsilon)
 
-            ## Post-Train ##
-            print('Post-Training for {} epochs.'.format(args.post_epochs))
-            post_result = train_eval_loop(model, loss, optimizer, scheduler, train_loader,
-                                          test_loader, device, args.post_epochs, args.verbose)
+            if 0:
+                ## Post-Train ##
+                print('Post-Training for {} epochs.'.format(args.post_epochs))
+                post_result = train_eval_loop(model, loss, optimizer, scheduler, train_loader,
+                                              test_loader, device, args.post_epochs, args.verbose)
 
-            ## Display Results ##
-            frames = [pre_result.head(1), pre_result.tail(1), post_result.head(1), post_result.tail(1)]
-            train_result = pd.concat(frames, keys=['Init.', 'Pre-Prune', 'Post-Prune', 'Final'])
-            prune_result = metrics.summary(model,
-                                           pruner.scores,
-                                           metrics.flop(model, input_shape, device),
-                                           lambda p: generator.prunable(p, args.prune_batchnorm, args.prune_residual))
-            total_params = int((prune_result['sparsity'] * prune_result['size']).sum())
-            possible_params = prune_result['size'].sum()
-            total_flops = int((prune_result['sparsity'] * prune_result['flops']).sum())
-            possible_flops = prune_result['flops'].sum()
-
-
-            print("Compression: ", args.compression)
-            print("Train results:\n", train_result)
-            print("Prune results:\n", prune_result)
-            print("Parameter Sparsity: {}/{} ({:.4f})".format(total_params, possible_params,
-                                                              total_params / possible_params))
-            print("FLOP Sparsity: {}/{} ({:.4f})".format(total_flops, possible_flops, total_flops / possible_flops))
-            print("------------------")
-
-            test_losses_k.append(post_result.tail(1)['test_loss'].iloc[0])
-            acctop1s_k.append(post_result.tail(1)['top1_accuracy'].iloc[0])
-            acctop5s_k.append(post_result.tail(1)['top5_accuracy'].iloc[0])
-            privacy_losses_k.append(epsilon)
-
-        test_loss = np.mean(test_losses_k)
-        acc1 = np.mean(acctop1s_k)
-        acc5 = np.mean(acctop5s_k)
-        eps = np.mean(privacy_losses_k)
-        # loss_dev = statistics.stdev(test_losses_k)
-        # acc1_dev = statistics.stdev(acctop1s_k)
-        # acc5_dev = statistics.stdev(acctop5s_k)
-
-        print("Epsilon: ", eps, "Test Loss: ", test_loss, "Acc1: ", acc1, "Acc5: ", acc5)
-
-        test_losses.append(test_loss)
-        acctop1s.append(acc1)
-        acctop5s.append(acc5)
-        privacy_losses.append(eps)
-        # test_losses_e.append(loss_dev)
-        # acctop1s_e.append(acc1_dev)
-        # acctop5s_e.append(acc5_dev)
+                ## Display Results ##
+                frames = [pre_result.head(1), pre_result.tail(1), post_result.head(1), post_result.tail(1)]
+                train_result = pd.concat(frames, keys=['Init.', 'Pre-Prune', 'Post-Prune', 'Final'])
+                prune_result = metrics.summary(model,
+                                               pruner.scores,
+                                               metrics.flop(model, input_shape, device),
+                                               lambda p: generator.prunable(p, args.prune_batchnorm, args.prune_residual))
+                total_params = int((prune_result['sparsity'] * prune_result['size']).sum())
+                possible_params = prune_result['size'].sum()
+                total_flops = int((prune_result['sparsity'] * prune_result['flops']).sum())
+                possible_flops = prune_result['flops'].sum()
 
 
-    print("Test Loss: ", test_losses)
-    print("Acc1: ", acctop1s)
-    print("Acc5: ", acctop5s)
-    print("Epsilon", privacy_losses)
-    plotGraph(privacy_losses, test_losses, "epsilon", "test_losses", args)
-    plotGraph(privacy_losses, acctop1s, "epsilon", "acctop1s", args)
-    plotGraph(privacy_losses, acctop5s, "epsilon", "acctop5s", args)
+                print("Compression: ", args.compression)
+                print("Train results:\n", train_result)
+                print("Prune results:\n", prune_result)
+                print("Parameter Sparsity: {}/{} ({:.4f})".format(total_params, possible_params,
+                                                                  total_params / possible_params))
+                print("FLOP Sparsity: {}/{} ({:.4f})".format(total_flops, possible_flops, total_flops / possible_flops))
+                print("------------------")
+
+                test_losses_k.append(post_result.tail(1)['test_loss'].iloc[0])
+                acctop1s_k.append(post_result.tail(1)['top1_accuracy'].iloc[0])
+                acctop5s_k.append(post_result.tail(1)['top5_accuracy'].iloc[0])
+                privacy_losses_k.append(epsilon)
+
+    #     test_loss = np.mean(test_losses_k)
+    #     acc1 = np.mean(acctop1s_k)
+    #     acc5 = np.mean(acctop5s_k)
+    #     eps = np.mean(privacy_losses_k)
+    #     # loss_dev = statistics.stdev(test_losses_k)
+    #     # acc1_dev = statistics.stdev(acctop1s_k)
+    #     # acc5_dev = statistics.stdev(acctop5s_k)
+    #
+    #     print("Epsilon: ", eps, "Test Loss: ", test_loss, "Acc1: ", acc1, "Acc5: ", acc5)
+    #
+    #     test_losses.append(test_loss)
+    #     acctop1s.append(acc1)
+    #     acctop5s.append(acc5)
+    #     privacy_losses.append(eps)
+    #     # test_losses_e.append(loss_dev)
+    #     # acctop1s_e.append(acc1_dev)
+    #     # acctop5s_e.append(acc5_dev)
+    #
+    #
+    # print("Test Loss: ", test_losses)
+    # print("Acc1: ", acctop1s)
+    # print("Acc5: ", acctop5s)
+    # print("Epsilon", privacy_losses)
+    # plotGraph(privacy_losses, test_losses, "epsilon", "test_losses", args)
+    # plotGraph(privacy_losses, acctop1s, "epsilon", "acctop1s", args)
+    # plotGraph(privacy_losses, acctop5s, "epsilon", "acctop5s", args)
 
 
 

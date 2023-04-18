@@ -10,7 +10,7 @@ def get_sparsity(tensor):
     return sparsity_ratio
 
 
-def prune_loop(model, loss, pruner, dataloader, device, sparsity, schedule, scope, epochs, clip, noise,
+def prune_loop(model, loss, pruner, dataloader, device, sparsity, schedule, scope, epochs, clip, noise, args,
                reinitialize=False, train_mode=False, shuffle=False, invert=False):
     r"""Applies score mask loop iteratively to a final sparsity level.
     """
@@ -36,10 +36,11 @@ def prune_loop(model, loss, pruner, dataloader, device, sparsity, schedule, scop
         #     print(k, v.shape)
         mask_np = {k: v.cpu().numpy() for k, v in mask}
         param_np = {k: v.cpu().detach().numpy() for k, v in param}
-        # for k, v in mask_np.items():
-        #     print(k, get_sparsity(v))
+        for k, v in mask_np.items():
+            print(k, get_sparsity(v))
 
-        np.savez("jax_privacy/pruned_torch_weights.npz", **mask_np)
+        sparsity2 = (1 - 1 / pow(10, float(args.compression)))
+        np.savez(f"jax_privacy/pruned_torch_weights_{args.model}_{args.dataset}_{args.pruner}_{sparsity2:.3f}.npz", **mask_np)
         np.savez("jax_privacy/jax_privacy/pruned_torch_weights.npz", **mask_np)
         np.savez("jax_privacy/torch_params.npz", **param_np)
         np.savez("jax_privacy/jax_privacy/torch_params.npz", **param_np)

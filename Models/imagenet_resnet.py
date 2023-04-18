@@ -412,5 +412,5 @@ def wide_resnet28_10(input_shape, num_classes, dense_classifier=False, pretraine
     `"Wide Residual Networks" <https://arxiv.org/pdf/1605.07146.pdf>`
     """
 
-    model = WideResNet(depth=16, widen_factor=4, num_classes=num_classes)
+    model = WideResNet(depth=28, widen_factor=10, num_classes=num_classes) #16-4
     return model
