@@ -120,7 +120,6 @@ class SNIP(Pruner):
         # allow masks to have gradient
         for m, p, _ in self.masked_parameters:
             m.requires_grad = True
-            print(p.requires_grad)
 
         # compute gradient
         for batch_idx, (data, target) in enumerate(dataloader):

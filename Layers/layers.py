@@ -136,6 +136,24 @@ class BatchNorm2d(nn.BatchNorm2d):
             self.training or not self.track_running_stats,
             exponential_average_factor, self.eps)
 
+class GroupNorm(nn.GroupNorm):
+    def __init__(self, num_groups, num_channels, eps=1e-5, affine=True, name=None):
+        super(GroupNorm, self).__init__(num_groups, num_channels, eps, affine)
+        self.name = name
+        if self.affine:
+            self.register_buffer('weight_mask', torch.ones(self.weight.shape))
+            self.register_buffer('bias_mask', torch.ones(self.bias.shape))
+
+    def forward(self, input):
+        if self.affine:
+            W = self.weight_mask * self.weight
+            b = self.bias_mask * self.bias
+        else:
+            W = self.weight
+            b = self.bias
+
+        return F.group_norm(input, self.num_groups, W, b, self.eps)
+
 
 class Identity1d(nn.Module):
     def __init__(self, num_features):

@@ -64,6 +64,11 @@ def flop(model, input_shape, device):
                 if module.affine:
                     flops['weight'] = module.num_features * output_size
                     flops['bias'] = module.num_features * output_size
+            if isinstance(module, layers.GroupNorm) or isinstance(module, nn.GroupNorm):
+                output_size = output.size(2) * output.size(3)
+                if module.affine:
+                    flops['weight'] = module.num_channels * output_size
+                    flops['bias'] = module.num_channels * output_size
             if isinstance(module, layers.Identity1d):
                 flops['weight'] = module.num_features
             if isinstance(module, layers.Identity2d):

@@ -24,9 +24,8 @@ def dp_sgd_backward(params, loss, device, clip_norm, noise_factor):
   squared_param_norms_de = [pt.norm(p.grad).cpu().detach() for p in params]
 
   # experiment of choosing a clip
-  percentile = 95
+  percentile = 50
   clip_norm = np.percentile(squared_param_norms_de, percentile)
-  print(clip_norm)
 
   global_norms = pt.sqrt(pt.sum(pt.stack(squared_param_norms), dim=0))  # ...then compute the global norms...
   global_clips = pt.clamp_max(clip_norm / global_norms, 1.)  # ...and finally get a vector of clipping factors

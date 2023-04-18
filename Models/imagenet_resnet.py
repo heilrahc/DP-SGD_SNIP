@@ -339,12 +339,15 @@ def wide_resnet101_2(input_shape, num_classes, dense_classifier=False, pretraine
 class WideBasicBlock(nn.Module):
     def __init__(self, in_planes, out_planes, stride, drop_rate=0.0, layer_name=""):
         super(WideBasicBlock, self).__init__()
+        group = 16
         self.layer_name = layer_name
         self.bn1 = layers.BatchNorm2d(in_planes, name=f"{layer_name}_bn1")
+        # self.bn1 = layers.GroupNorm(group, in_planes)
         self.relu1 = nn.ReLU(inplace=True)
         self.conv1 = layers.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                                    padding=1, bias=False, name=f"{layer_name}_conv1")
         self.bn2 = layers.BatchNorm2d(out_planes, name=f"{layer_name}_bn2")
+        # self.bn2 = layers.GroupNorm(group, out_planes)
         self.relu2 = nn.ReLU(inplace=True)
         self.conv2 = layers.Conv2d(out_planes, out_planes, kernel_size=3, stride=1,
                                    padding=1, bias=False, name=f"{layer_name}_conv2")
@@ -376,11 +379,13 @@ class WideResNet(nn.Module):
         n = (depth - 4) // 6
         k = widen_factor
         n_stages = [16, 16 * k, 32 * k, 64 * k]
+        group = 16
         self.conv1 = layers.Conv2d(3, n_stages[0], kernel_size=3, stride=1, padding=1, bias=False, name="conv1")
         self.layer1 = self._make_layer(n_stages[0], n_stages[1], n, drop_rate, stride=1, layer_name_prefix="layer1")
         self.layer2 = self._make_layer(n_stages[1], n_stages[2], n, drop_rate, stride=2, layer_name_prefix="layer2")
         self.layer3 = self._make_layer(n_stages[2], n_stages[3], n, drop_rate, stride=2, layer_name_prefix="layer3")
         self.bn1 = layers.BatchNorm2d(n_stages[3], momentum=0.9, name="bn1")
+        # self.bn1 = layers.GroupNorm(group, n_stages[3])
         self.relu = nn.ReLU(inplace=True)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.fc = layers.Linear(n_stages[3], num_classes, name="fc")
