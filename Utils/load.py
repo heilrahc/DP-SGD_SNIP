@@ -185,7 +185,9 @@ def model(model_architecture, model_class):
         'resnet152' : imagenet_resnet.resnet152,
         'wide-resnet50' : imagenet_resnet.wide_resnet50_2,
         'wide-resnet101' : imagenet_resnet.wide_resnet101_2,
-        'wide-resnet2810': imagenet_resnet.wide_resnet28_10
+        'wide-resnet2810': imagenet_resnet.wide_resnet28_10,
+        'wide-resnet164': imagenet_resnet.wide_resnet16_4,
+        'wide-resnet404': imagenet_resnet.wide_resnet40_4
     }
     models = {
         'default' : default_models,

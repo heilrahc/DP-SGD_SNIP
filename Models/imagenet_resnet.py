@@ -9,7 +9,7 @@ import math
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
-           'wide_resnet50_2', 'wide_resnet101_2', "wide_resnet28_10"]
+           'wide_resnet50_2', 'wide_resnet101_2', "wide_resnet28_10", "wide_resnet16_4", "wide_resnet40_4"]
 
 
 model_urls = {
@@ -273,8 +273,7 @@ def resnet50(input_shape, num_classes, dense_classifier=False, pretrained=False,
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    return _resnet('resnet50', Bottleneck, [3, 4, 6, 3], pretrained, progress,
-                   **kwargs)
+    return _resnet('resnet50', Bottleneck, [3, 4, 6, 3], pretrained, progress, input_shape,  **kwargs)
 
 
 def resnet101(input_shape, num_classes, dense_classifier=False, pretrained=False, progress=True, **kwargs):
@@ -413,4 +412,20 @@ def wide_resnet28_10(input_shape, num_classes, dense_classifier=False, pretraine
     """
 
     model = WideResNet(depth=28, widen_factor=10, num_classes=num_classes) #16-4
+    return model
+
+def wide_resnet16_4(input_shape, num_classes, dense_classifier=False, pretrained=False, progress=True, **kwargs):
+    r"""Wide ResNet-101-2 model from
+    `"Wide Residual Networks" <https://arxiv.org/pdf/1605.07146.pdf>`
+    """
+    model = WideResNet(depth=16, widen_factor=4, num_classes=num_classes)  # 16-4
+    #model = WideResNet(depth=28, widen_factor=10, num_classes=num_classes) #16-4
+    return model
+
+def wide_resnet40_4(input_shape, num_classes, dense_classifier=False, pretrained=False, progress=True, **kwargs):
+    r"""Wide ResNet-101-2 model from
+    `"Wide Residual Networks" <https://arxiv.org/pdf/1605.07146.pdf>`
+    """
+    model = WideResNet(depth=16, widen_factor=4, num_classes=num_classes)  # 16-4
+    #model = WideResNet(depth=28, widen_factor=10, num_classes=num_classes) #16-4
     return model

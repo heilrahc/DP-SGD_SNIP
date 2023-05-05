@@ -15,7 +15,7 @@ from Utils import metrics
 from train import *
 from prune import *
 from opacus import PrivacyEngine
-
+from pynvml import *
 
 def CGF_func_single(sigma1):
     func_gaussian_1 = lambda x: rdp_bank.RDP_gaussian({'sigma': sigma1}, x)
@@ -79,7 +79,7 @@ def run(args):
     test_losses = []
     acctop1s = []
     acctop5s = []
-    sigmas = [5]
+    sigmas = [1000]
     clips = [1, 0.5, 0.1, 0.01, 1e-3, 1e-4, 1e-5]
     # test_losses_e = []
     # acctop1s_e = []
@@ -95,7 +95,15 @@ def run(args):
             ## Data ##
             print('Loading {} dataset.'.format(args.dataset))
             input_shape, num_classes = load.dimension(args.dataset)
+
+            print('Creating {}-{} model.'.format(args.model_class, args.model))
             prune_loader = load.dataloader(args.dataset, args.prune_batch_size, True, args.workers, args.prune_dataset_ratio * num_classes)
+            nvmlInit()
+            h = nvmlDeviceGetHandleByIndex(0)
+            info = nvmlDeviceGetMemoryInfo(h)
+            print(f'total    : {info.total}')
+            print(f'free     : {info.free}')
+            print(f'used     : {info.used}')
             train_loader = load.dataloader(args.dataset, args.train_batch_size, True, args.workers)
             test_loader = load.dataloader(args.dataset, args.test_batch_size, False, args.workers)
 
@@ -130,8 +138,8 @@ def run(args):
                        args.reinitialize, args.prune_train_mode, args.shuffle, args.invert)
             prune_dataset_size = sys.getsizeof([data for idx,(data,target) in enumerate(prune_loader)][0])
 
-            epsilon, _ = privacy_analyze(sigma, delta, 1, 1, prune_dataset_size)
-            print("Epsilon: ", epsilon)
+            # epsilon, _ = privacy_analyze(sigma, delta, 1, 1, prune_dataset_size)
+            # print("Epsilon: ", epsilon)
 
             if 0:
                 ## Post-Train ##

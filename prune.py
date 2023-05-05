@@ -39,7 +39,9 @@ def prune_loop(model, loss, pruner, dataloader, device, sparsity, schedule, scop
         for k, v in mask_np.items():
             print(k, get_sparsity(v))
 
+        print("spars", sparsity)
         sparsity2 = (1 - 1 / pow(10, float(args.compression)))
+        print("spars2", sparsity2)
         np.savez(f"jax_privacy/pruned_torch_weights_{args.model}_{args.dataset}_{args.pruner}_{sparsity2:.3f}.npz", **mask_np)
         np.savez("jax_privacy/jax_privacy/pruned_torch_weights.npz", **mask_np)
         np.savez("jax_privacy/torch_params.npz", **param_np)
