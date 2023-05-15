@@ -36,14 +36,16 @@ def prune_loop(model, loss, pruner, dataloader, device, sparsity, schedule, scop
         #     print(k, v.shape)
         mask_np = {k: v.cpu().numpy() for k, v in mask}
         param_np = {k: v.cpu().detach().numpy() for k, v in param}
+        # for k, v in param_np.items():
+        #     print(k)
         # for k, v in mask_np.items():
         #     print(k, get_sparsity(v))
 
-        # np.savez("jax_privacy/pruned_torch_weights.npz", **mask_np)
-        # np.savez("jax_privacy/jax_privacy/pruned_torch_weights.npz", **mask_np)
-        # np.savez("jax_privacy/torch_params.npz", **param_np)
-        # np.savez("jax_privacy/jax_privacy/torch_params.npz", **param_np)
-        # print("---------pruned weights stored----------")
+        np.savez("jax_privacy/pruned_torch_weights.npz", **mask_np)
+        np.savez("jax_privacy/jax_privacy/pruned_torch_weights.npz", **mask_np)
+        np.savez("jax_privacy/torch_params.npz", **param_np)
+        np.savez("jax_privacy/jax_privacy/torch_params.npz", **param_np)
+        print("---------pruned weights stored----------")
 
     # Reainitialize weights
     if reinitialize:

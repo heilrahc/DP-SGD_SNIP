@@ -5,6 +5,10 @@ from torch.nn import functional as F
 from torch.nn import init
 from torch.nn.parameter import Parameter
 from torch.nn.modules.utils import _pair
+from opacus.grad_sample import register_grad_sampler
+from opacus.grad_sample import GradSampleModule
+from typing import Dict
+
 
 
 class Linear(nn.Linear):
@@ -53,13 +57,96 @@ class Conv2d(nn.Conv2d):
         return self._conv_forward(input, W, b)
 
 
+class GroupNorm(nn.GroupNorm):
+    def __init__(self, num_groups, num_channels, eps=1e-5, affine=True, name=None):
+        super(GroupNorm, self).__init__(num_groups, num_channels, eps, affine)
+        self.name = name
+        if self.affine:
+            self.register_buffer('weight_mask', torch.ones(self.weight.shape))
+            self.register_buffer('bias_mask', torch.ones(self.bias.shape))
+
+    def forward(self, input):
+        if self.affine:
+            W = self.weight * self.weight_mask
+            b = self.bias * self.bias_mask
+        else:
+            W = self.weight
+            b = self.bias
+
+        return F.group_norm(input, self.num_groups, W, b, self.eps)
+
+
+@register_grad_sampler(Linear)
+def custom_linear_grad_sample(layer: Linear, activations: torch.Tensor, backprops: torch.Tensor) -> Dict[nn.Parameter, torch.Tensor]:
+    print("Registering custom Linear grad sampler")
+    weight = layer.weight * layer.weight_mask
+    bias = layer.bias * layer.bias_mask if layer.bias is not None else None
+
+    gs = torch.einsum("n...i,n...j->nij", backprops, activations)
+    ret = {weight: gs}
+
+    if bias is not None:
+        ret[bias] = torch.einsum("n...k->nk", backprops)
+
+    return ret
+
+
+@register_grad_sampler(Conv2d)
+def custom_conv2d_grad_sample(layer: Conv2d, A: torch.Tensor, B: torch.Tensor):
+    print("Registering custom Conv2d grad sampler")
+    weight = layer.weight * layer.weight_mask
+    bias = layer.bias * layer.bias_mask if layer.bias is not None else None
+
+    # Unfold the input tensor
+    A_unfold = F.unfold(A, layer.kernel_size, layer.dilation, layer.padding, layer.stride)
+
+    # Calculate the per-sample gradients
+    gs = torch.einsum("nij,nijkl->nikl", B, A_unfold)
+
+    # Rearrange the dimensions to match the weight tensor
+    gs = gs.reshape(gs.shape[0], *weight.shape)
+
+    ret = {weight: gs}
+    if layer.bias is not None:
+        ret[bias] = torch.einsum("n...k->nk", B)
+
+    return ret
+
+
+@register_grad_sampler(GroupNorm)
+def custom_groupnorm_grad_sample(layer: GroupNorm, A: torch.Tensor, B: torch.Tensor):
+    print("Registering custom GroupNorm grad sampler")
+    weight = layer.weight * layer.weight_mask if layer.affine else None
+    bias = layer.bias * layer.bias_mask if layer.affine else None
+
+    C = A.shape[1] // layer.num_groups
+    norm_shape = (1, layer.num_groups, C, *A.shape[2:])
+    A = A.reshape(*norm_shape)
+    B = B.reshape(*norm_shape)
+
+    mean = A.mean(dim=(2, 3), keepdim=True)
+    A_centered = A - mean
+    std = torch.sqrt(A_centered.pow(2).mean(dim=(2, 3), keepdim=True) + layer.eps)
+
+    grad_sample_std = (B * A_centered).sum(dim=(2, 3), keepdim=True) / (std * std)
+    grad_sample_mean = B.sum(dim=(2, 3), keepdim=True) - grad_sample_std * A_centered.sum(dim=(2, 3), keepdim=True) / std
+    grad_sample = (-A_centered / (std * std) * grad_sample_std - 1 / std * grad_sample_mean) / B.shape[2] / B.shape[3]
+
+    ret = {}
+    if layer.affine:
+        ret[weight] = torch.einsum("nc...->nc", grad_sample)
+        ret[bias] = torch.einsum("nc...->nc", B)
+
+    return ret
+
+
 class BatchNorm1d(nn.BatchNorm1d):
     def __init__(self, num_features, eps=1e-5, momentum=0.1, affine=True,
                  track_running_stats=True, name=None):
         super(BatchNorm1d, self).__init__(
             num_features, eps, momentum, affine, track_running_stats)
         self.name=name
-        if self.affine:     
+        if self.affine:
             self.register_buffer('weight_mask', torch.ones(self.weight.shape))
             self.register_buffer('bias_mask', torch.ones(self.bias.shape))
 
@@ -101,7 +188,7 @@ class BatchNorm2d(nn.BatchNorm2d):
         super(BatchNorm2d, self).__init__(
             num_features, eps, momentum, affine, track_running_stats)
         self.name = name
-        if self.affine:     
+        if self.affine:
             self.register_buffer('weight_mask', torch.ones(self.weight.shape))
             self.register_buffer('bias_mask', torch.ones(self.bias.shape))
 
@@ -135,24 +222,6 @@ class BatchNorm2d(nn.BatchNorm2d):
             input, self.running_mean, self.running_var, W, b,
             self.training or not self.track_running_stats,
             exponential_average_factor, self.eps)
-
-class GroupNorm(nn.GroupNorm):
-    def __init__(self, num_groups, num_channels, eps=1e-5, affine=True, name=None):
-        super(GroupNorm, self).__init__(num_groups, num_channels, eps, affine)
-        self.name = name
-        if self.affine:
-            self.register_buffer('weight_mask', torch.ones(self.weight.shape))
-            self.register_buffer('bias_mask', torch.ones(self.bias.shape))
-
-    def forward(self, input):
-        if self.affine:
-            W = self.weight_mask * self.weight
-            b = self.bias_mask * self.bias
-        else:
-            W = self.weight
-            b = self.bias
-
-        return F.group_norm(input, self.num_groups, W, b, self.eps)
 
 
 class Identity1d(nn.Module):

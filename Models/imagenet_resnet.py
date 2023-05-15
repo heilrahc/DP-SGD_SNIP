@@ -6,6 +6,7 @@ from .utils import load_state_dict_from_url
 from Layers import layers
 import torch.nn.functional as F
 import math
+from opacus.grad_sample import GradSampleModule
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -341,32 +342,34 @@ class WideBasicBlock(nn.Module):
         super(WideBasicBlock, self).__init__()
         group = 16
         self.layer_name = layer_name
-        self.bn1 = layers.BatchNorm2d(in_planes, name=f"{layer_name}_bn1")
-        # self.bn1 = layers.GroupNorm(group, in_planes)
+        # self.norm0 = layers.BatchNorm2d(in_planes, name=f"{layer_name}_bn1")
+        self.norm0 = layers.GroupNorm(group, in_planes, name=f"{layer_name}_bn1")
         self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = layers.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+        self.conv0 = layers.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                                    padding=1, bias=False, name=f"{layer_name}_conv1")
-        self.bn2 = layers.BatchNorm2d(out_planes, name=f"{layer_name}_bn2")
-        # self.bn2 = layers.GroupNorm(group, out_planes)
+        # self.norm1 = layers.BatchNorm2d(out_planes, name=f"{layer_name}_bn2")
+        self.norm1 = layers.GroupNorm(group, out_planes, name=f"{layer_name}_bn2")
         self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = layers.Conv2d(out_planes, out_planes, kernel_size=3, stride=1,
+        self.conv1 = layers.Conv2d(out_planes, out_planes, kernel_size=3, stride=1,
                                    padding=1, bias=False, name=f"{layer_name}_conv2")
         self.drop_rate = drop_rate
         self.equal_io = in_planes == out_planes
-        self.conv_shortcut = (not self.equal_io) and layers.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
-                                                                   padding=0, bias=False, name=f"{layer_name}_conv_shortcut") or None
+        self.skip_conv = (not self.equal_io) and layers.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride,
+                                                                   padding=0, bias=False, name=f"{layer_name}_skip_conv") or None
+        self.skip_norm = (not self.equal_io) and layers.GroupNorm(group, in_planes, name=f"{layer_name}_skip_norm") or None
+
 
     def forward(self, x):
         if not self.equal_io:
-            x = self.relu1(self.bn1(x))
-            out = self.conv1(x)
+            x = self.relu1(self.norm0(x))
+            out = self.conv0(x)
         else:
-            out = self.conv1(self.relu1(self.bn1(x)))
+            out = self.conv0(self.relu1(self.norm0(x)))
         if self.drop_rate > 0:
             out = F.dropout(out, p=self.drop_rate, training=self.training)
-        out = self.conv2(self.relu2(self.bn2(out)))
+        out = self.conv1(self.relu2(self.norm1(out)))
         if not self.equal_io:
-            return self.conv_shortcut(x) + out
+            return self.skip_conv(self.skip_norm(x)) + out
         else:
             return x + out
 
@@ -380,15 +383,15 @@ class WideResNet(nn.Module):
         k = widen_factor
         n_stages = [16, 16 * k, 32 * k, 64 * k]
         group = 16
-        self.conv1 = layers.Conv2d(3, n_stages[0], kernel_size=3, stride=1, padding=1, bias=False, name="conv1")
-        self.layer1 = self._make_layer(n_stages[0], n_stages[1], n, drop_rate, stride=1, layer_name_prefix="layer1")
-        self.layer2 = self._make_layer(n_stages[1], n_stages[2], n, drop_rate, stride=2, layer_name_prefix="layer2")
-        self.layer3 = self._make_layer(n_stages[2], n_stages[3], n, drop_rate, stride=2, layer_name_prefix="layer3")
-        self.bn1 = layers.BatchNorm2d(n_stages[3], momentum=0.9, name="bn1")
-        # self.bn1 = layers.GroupNorm(group, n_stages[3])
+        self.First_conv = layers.Conv2d(3, n_stages[0], kernel_size=3, stride=1, padding=1, bias=False, name="First_conv")
+        self.Block_1 = self._make_layer(n_stages[0], n_stages[1], n, drop_rate, stride=1, layer_name_prefix="Block_1")
+        self.Block_2 = self._make_layer(n_stages[1], n_stages[2], n, drop_rate, stride=2, layer_name_prefix="Block_2")
+        self.Block_3 = self._make_layer(n_stages[2], n_stages[3], n, drop_rate, stride=2, layer_name_prefix="Block_3")
+        # self.Final_norm = layers.BatchNorm2d(n_stages[3], momentum=0.9, name="bn1")
+        self.Final_norm = layers.GroupNorm(group, n_stages[3], name="Final_norm")
         self.relu = nn.ReLU(inplace=True)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = layers.Linear(n_stages[3], num_classes, name="fc")
+        self.Softmax = layers.Linear(n_stages[3], num_classes, name="Softmax")
 
     def _make_layer(self, in_planes, out_planes, num_blocks, drop_rate, stride, layer_name_prefix):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -400,14 +403,14 @@ class WideResNet(nn.Module):
         return nn.Sequential(*blocks)
 
     def forward(self, x):
-        out = self.conv1(x)
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.relu(self.bn1(out))
+        out = self.First_conv(x)
+        out = self.Block_1(out)
+        out = self.Block_2(out)
+        out = self.Block_3(out)
+        out = self.relu(self.Final_norm(out))
         out = self.avg_pool(out)
         out = out.view(out.size(0), -1)
-        out = self.fc(out)
+        out = self.Softmax(out)
         return out
 
 
